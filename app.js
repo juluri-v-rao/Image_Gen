@@ -343,6 +343,9 @@
       })));
     } catch (err) { setStatus("error", err.message); return; }
 
+    // Generate is a user click, so the browser allows re-confirming folder access here.
+    if (folderHandle) { await folderReady(true); refreshFolderStatus(); }
+
     if (jobs.length > 8 && !(await confirmDialog(`This will send ${jobs.length} requests to Bria (each one is billed). Continue?`, "Continue"))) return;
 
     $("submitBtn").disabled = true;
@@ -362,21 +365,221 @@
       };
       await Promise.all(Array.from({ length: Math.min(3, jobs.length) }, worker));
 
-      let okCount = 0; const errors = [];
+      let okCount = 0; const errors = []; const saves = [];
       // Cards are prepended, so walk backwards to show results in input order.
       [...results.keys()].reverse().forEach((i) => {
         const r = results[i], job = jobs[i];
-        if (r.ok) { okCount++; r.value.images.forEach((src) => addResult(src, job.body.seed ?? r.value.data?.result?.seed, job.input)); }
+        if (r.ok) {
+          okCount++;
+          const seed = job.body.seed ?? r.value.data?.result?.seed;
+          r.value.images.forEach((src) => {
+            addResult(src, seed, job.input);
+            saves.push({ src, meta: { prompt: job.body.instruction, inputLabel: job.input?.label, seed } });
+          });
+        }
         else errors.push(`${job.input ? job.input.label + ": " : ""}${r.error}`);
       });
       errors.reverse();
       if (errors.length && !okCount) setStatus("error", errors.join("\n\n"));
       else if (errors.length) setStatus("error", `${okCount}/${jobs.length} succeeded.\n${errors.join("\n")}`);
-      else setStatus("done", `Done: ${okCount} request${okCount > 1 ? "s" : ""} completed.`);
+      else setStatus("done", `Done: ${okCount} request${okCount > 1 ? "s" : ""} completed. Saved to Gallery.`);
+      // Save in input order (saves was filled in reverse).
+      for (const s of saves.reverse()) await saveToGallery(s.src, s.meta);
     } finally {
       $("submitBtn").disabled = false;
       updateImageInfo();
     }
+  }
+
+  /* ---------------- Gallery (IndexedDB) ---------------- */
+  // Records: { id, createdAt, prompt, inputLabel, seed, url, blob? }. The blob is kept when the
+  // image can be fetched, so it survives even after Bria's result URL expires.
+  const DB_NAME = "fibo_gallery", STORE = "images", META = "meta";
+  let dbPromise = null;
+  function db() {
+    if (!dbPromise) dbPromise = new Promise((res, rej) => {
+      const r = indexedDB.open(DB_NAME, 1);
+      r.onupgradeneeded = () => {
+        r.result.createObjectStore(STORE, { keyPath: "id", autoIncrement: true });
+        r.result.createObjectStore(META);
+      };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    return dbPromise;
+  }
+  async function tx(store, mode, fn) {
+    const d = await db();
+    return new Promise((res, rej) => {
+      const t = d.transaction(store, mode);
+      const out = fn(t.objectStore(store));
+      t.oncomplete = () => res(out && "result" in out ? out.result : undefined);
+      t.onerror = () => rej(t.error);
+    });
+  }
+  const galleryAll = () => tx(STORE, "readonly", (s) => s.getAll());
+  const galleryAdd = (rec) => tx(STORE, "readwrite", (s) => s.add(rec));
+  const galleryDel = (id) => tx(STORE, "readwrite", (s) => s.delete(id));
+  const galleryClear = () => tx(STORE, "readwrite", (s) => s.clear());
+  const metaGet = (k) => tx(META, "readonly", (s) => s.get(k));
+  const metaSet = (k, v) => tx(META, "readwrite", (s) => (v === undefined ? s.delete(k) : s.put(v, k)));
+
+  const extFor = (type) => (/jpe?g/.test(type) ? "jpg" : /webp/.test(type) ? "webp" : "png");
+  const pad = (n) => String(n).padStart(2, "0");
+  function fileName(rec, i) {
+    const d = new Date(rec.createdAt);
+    const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    const words = (rec.prompt || "image").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "image";
+    return `fibo_${stamp}_${rec.id ?? i}_${words}.${extFor(rec.blob?.type || "")}`;
+  }
+
+  async function fetchBlob(src) {
+    try { const r = await fetch(src); if (!r.ok) return null; const b = await r.blob(); return b.type.startsWith("image/") || src.startsWith("data:") ? b : null; }
+    catch { return null; } // e.g. CORS blocked: keep the URL only
+  }
+
+  // ---- Auto-save folder (File System Access API: Chrome / Edge) ----
+  const folderSupported = "showDirectoryPicker" in window;
+  let folderHandle = null;
+
+  async function folderReady(ask) {
+    if (!folderHandle) return false;
+    const opts = { mode: "readwrite" };
+    if ((await folderHandle.queryPermission(opts)) === "granted") return true;
+    if (!ask) return false;
+    try { return (await folderHandle.requestPermission(opts)) === "granted"; } catch { return false; }
+  }
+
+  async function refreshFolderStatus() {
+    const el = $("folderStatus"), btn = $("chooseFolder");
+    if (!folderSupported) {
+      btn.hidden = true;
+      el.textContent = "Tip: in Chrome or Edge you can also auto-save every image into a folder on your computer.";
+      return;
+    }
+    if (!folderHandle) { el.textContent = ""; el.classList.remove("on"); btn.textContent = "Auto-save to a folder…"; return; }
+    const ok = await folderReady(false);
+    el.classList.toggle("on", ok);
+    el.textContent = ok ? `Auto-saving new images to folder “${folderHandle.name}”.`
+                        : `Folder “${folderHandle.name}” selected. Access will be re-confirmed on your next Generate.`;
+    btn.textContent = "Change folder…";
+  }
+
+  async function chooseFolder() {
+    try {
+      const h = await window.showDirectoryPicker({ id: "fibo-gallery", mode: "readwrite" });
+      folderHandle = h;
+      await metaSet("folder", h);
+      await refreshFolderStatus();
+      const recs = await galleryAll();
+      if (recs.some((r) => r.blob) && await confirmDialog(`Also copy the ${recs.filter((r) => r.blob).length} images already in the gallery into “${h.name}”?`, "Copy")) {
+        for (const r of recs) if (r.blob) await writeToFolder(r);
+        setStatus("done", `Copied gallery images to “${h.name}”.`);
+      }
+    } catch (e) { if (e.name !== "AbortError") setStatus("error", `Could not use that folder: ${e.message}`); }
+  }
+
+  async function writeToFolder(rec) {
+    if (!rec.blob || !(await folderReady(false))) return false;
+    try {
+      const fh = await folderHandle.getFileHandle(fileName(rec), { create: true });
+      const w = await fh.createWritable(); await w.write(rec.blob); await w.close();
+      return true;
+    } catch (e) { log("Folder save failed", e.message); return false; }
+  }
+
+  async function saveToGallery(src, meta) {
+    const blob = await fetchBlob(src);
+    const rec = { createdAt: Date.now(), prompt: meta.prompt, inputLabel: meta.inputLabel || "", seed: meta.seed ?? null,
+                  url: src.startsWith("data:") ? "" : src, blob };
+    try { rec.id = await galleryAdd(rec); } catch (e) { log("Gallery save failed", e.message); return; }
+    await writeToFolder(rec);
+    renderGallery();
+  }
+
+  const objectUrls = [];
+  async function renderGallery() {
+    let recs = [];
+    try { recs = await galleryAll(); } catch { /* storage unavailable */ }
+    $("galleryCount").textContent = `(${recs.length})`;
+    objectUrls.splice(0).forEach((u) => URL.revokeObjectURL(u));
+    const q = $("gallerySearch").value.trim().toLowerCase();
+    const shown = recs.filter((r) => !q || (r.prompt || "").toLowerCase().includes(q)).reverse();
+    const box = $("gallery");
+    box.textContent = "";
+    $("galleryEmpty").hidden = shown.length > 0;
+    $("galleryEmpty").textContent = recs.length ? "No images match your search." : "No images yet. Generated images will appear here.";
+    for (const r of shown) {
+      const src = r.blob ? URL.createObjectURL(r.blob) : r.url;
+      if (r.blob) objectUrls.push(src);
+      const card = document.createElement("div"); card.className = "result-card";
+      const img = document.createElement("img"); img.src = src; img.alt = r.prompt || "Generated image"; img.loading = "lazy";
+      const meta = document.createElement("div"); meta.className = "meta";
+      const p = document.createElement("div"); p.className = "prompt"; p.textContent = r.prompt || ""; p.title = r.prompt || "";
+      const info = document.createElement("div");
+      info.textContent = [new Date(r.createdAt).toLocaleString(), r.inputLabel, r.seed != null ? `seed ${r.seed}` : ""].filter(Boolean).join(" · ");
+      meta.append(p, info);
+      const actions = document.createElement("div"); actions.className = "actions";
+      const dl = document.createElement("a"); dl.href = src; dl.textContent = "Download";
+      if (r.blob) dl.download = fileName(r); else { dl.target = "_blank"; dl.rel = "noopener"; }
+      const del = document.createElement("button"); del.type = "button"; del.className = "link-btn"; del.textContent = "Delete";
+      del.addEventListener("click", async () => {
+        if (await confirmDialog("Delete this image from the gallery?", "Delete")) { await galleryDel(r.id); renderGallery(); }
+      });
+      actions.append(dl, del);
+      card.append(img, meta, actions);
+      box.append(card);
+    }
+  }
+
+  async function downloadAll() {
+    const recs = await galleryAll();
+    if (!recs.length) { setStatus("error", "The gallery is empty."); return; }
+    if (typeof JSZip === "undefined") { setStatus("error", "ZIP library failed to load. Check your connection and refresh."); return; }
+    const btn = $("downloadAll"); btn.disabled = true; btn.textContent = "Preparing ZIP…";
+    try {
+      const zip = new JSZip(); let added = 0, skipped = 0;
+      const index = [];
+      for (const [i, r] of recs.entries()) {
+        const blob = r.blob || (r.url && (await fetchBlob(r.url)));
+        if (!blob) { skipped++; continue; }
+        const name = fileName({ ...r, blob }, i);
+        zip.file(name, blob); added++;
+        index.push({ file: name, prompt: r.prompt, input: r.inputLabel, seed: r.seed, created: new Date(r.createdAt).toISOString() });
+      }
+      if (!added) { setStatus("error", "None of the images could be downloaded (their links may have expired)."); return; }
+      zip.file("prompts.json", JSON.stringify(index, null, 2));
+      const out = await zip.generateAsync({ type: "blob" });
+      const a = document.createElement("a");
+      const d = new Date();
+      a.href = URL.createObjectURL(out);
+      a.download = `fibo_gallery_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.zip`;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      setStatus("done", `ZIP downloaded with ${added} image${added > 1 ? "s" : ""}${skipped ? ` (${skipped} skipped: link expired)` : ""}.`);
+    } finally { btn.disabled = false; btn.textContent = "Download all (ZIP)"; }
+  }
+
+  async function initGallery() {
+    document.querySelectorAll(".out-tabs .tab").forEach((t) => t.addEventListener("click", () => {
+      document.querySelectorAll(".out-tabs .tab").forEach((x) => x.classList.toggle("active", x === t));
+      $("viewLatest").hidden = t.dataset.view !== "latest";
+      $("viewGallery").hidden = t.dataset.view !== "gallery";
+      if (t.dataset.view === "gallery") renderGallery();
+    }));
+    $("downloadAll").addEventListener("click", downloadAll);
+    $("chooseFolder").addEventListener("click", chooseFolder);
+    $("gallerySearch").addEventListener("input", renderGallery);
+    $("clearGallery").addEventListener("click", async () => {
+      const n = (await galleryAll()).length;
+      if (!n) return;
+      if (await confirmDialog(`Delete all ${n} images from the gallery? Tip: use “Download all (ZIP)” first to keep a copy.`, "Delete all")) {
+        await galleryClear(); renderGallery();
+      }
+    });
+    try { folderHandle = (await metaGet("folder")) || null; } catch { folderHandle = null; }
+    refreshFolderStatus();
+    renderGallery();
   }
 
   /* ---------------- Init ---------------- */
@@ -384,6 +587,7 @@
     refreshKeyStatus();
     initImageInputs();
     initOptions();
+    initGallery();
     $("editForm").addEventListener("submit", onSubmit);
     $("openKeyModal").addEventListener("click", openKeyModal);
     $("cancelKey").addEventListener("click", closeKeyModal);

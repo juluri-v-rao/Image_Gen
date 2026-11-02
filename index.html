@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FIBO Image Edit</title>
-  <link rel="stylesheet" href="styles.css?v=2" />
+  <link rel="stylesheet" href="styles.css?v=3" />
 </head>
 <body>
   <header class="topbar">
@@ -106,13 +106,33 @@
 
     <!-- ============ OUTPUT PANEL ============ -->
     <section class="panel">
-      <h2>Result</h2>
-      <div id="status" class="status idle">Waiting for input.</div>
-      <div id="results" class="results"></div>
-      <details class="options">
-        <summary>Request / response log</summary>
-        <pre id="log" class="mono log"></pre>
-      </details>
+      <div class="tabs out-tabs" role="tablist">
+        <button type="button" class="tab active" data-view="latest">Latest results</button>
+        <button type="button" class="tab" data-view="gallery">Gallery <span id="galleryCount">(0)</span></button>
+      </div>
+
+      <div id="viewLatest">
+        <div id="status" class="status idle">Waiting for input.</div>
+        <div id="results" class="results"></div>
+        <details class="options">
+          <summary>Request / response log</summary>
+          <pre id="log" class="mono log"></pre>
+        </details>
+      </div>
+
+      <div id="viewGallery" hidden>
+        <p class="muted">Every generated image is saved here automatically and kept in this browser.</p>
+        <div class="gallery-bar">
+          <button id="downloadAll" type="button" class="btn primary small-btn">Download all (ZIP)</button>
+          <button id="chooseFolder" type="button" class="btn secondary small-btn">Auto-save to a folder…</button>
+          <span class="spacer"></span>
+          <button id="clearGallery" type="button" class="btn danger-ghost small-btn">Clear gallery</button>
+        </div>
+        <p id="folderStatus" class="muted folder-status"></p>
+        <input id="gallerySearch" type="text" placeholder="Search by prompt…" />
+        <div id="gallery" class="results"></div>
+        <p id="galleryEmpty" class="muted">No images yet. Generated images will appear here.</p>
+      </div>
     </section>
   </main>
 
@@ -149,6 +169,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

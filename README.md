@@ -12,6 +12,10 @@ A static web page for Bria's **FIBO Image Edit** API. Upload an image (or paste 
 - **API settings**: base URL and endpoint path, both editable in case Bria changes them
 - **Update API key** button: opens a dialog for the new key, then asks you to confirm with **OK / Cancel** before saving. You can also remove the saved key there.
 - The button shows how many requests will be sent. More than 8 asks for confirmation first, and at most 3 run at the same time.
+- **Gallery**: every generated image is saved automatically in one place, in a **Gallery** tab. It's stored in your browser (IndexedDB), so images stay after you close the page.
+  - **Download all (ZIP)**: saves every image into one ZIP file, plus a `prompts.json` with the prompt, input and seed for each image
+  - **Auto-save to a folder** (Chrome / Edge): choose a folder on your computer once, and every new image is written there automatically
+  - Search by prompt, download or delete single images, and **Clear gallery** (asks for confirmation first)
 - Async requests are handled automatically: the page checks `status_url` until the image is ready.
 - A request/response log for debugging. Long base64 strings are shortened in the log.
 
