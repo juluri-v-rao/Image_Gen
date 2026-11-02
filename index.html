@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FIBO Image Edit</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>FIBO Image Edit</h1>
+    <div class="topbar-right">
+      <span id="keyStatus" class="key-status">No API key</span>
+      <button id="openKeyModal" class="btn secondary" type="button">Update API key</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ============ INPUT PANEL ============ -->
+    <form id="editForm" class="panel" autocomplete="off">
+      <h2>Input</h2>
+
+      <label class="field-label">Input image</label>
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" data-src="upload">Upload</button>
+        <button type="button" class="tab" data-src="url">Image URL</button>
+      </div>
+      <div id="srcUpload" class="src-pane">
+        <label id="dropZone" class="drop-zone">
+          <input id="imageFile" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+          <span id="dropText">Click or drop an image here (PNG / JPG / WEBP)</span>
+          <img id="inputPreview" alt="" hidden />
+        </label>
+      </div>
+      <div id="srcUrl" class="src-pane" hidden>
+        <input id="imageUrl" type="url" placeholder="https://example.com/photo.jpg" />
+      </div>
+
+      <label class="field-label" for="instruction">Prompt / edit instruction <span class="req">*</span></label>
+      <textarea id="instruction" rows="4" required
+        placeholder="e.g. Change the sky to a warm sunset and add soft golden light"></textarea>
+
+      <details class="options" open>
+        <summary>Options</summary>
+
+        <label class="field-label" for="maskFile">Mask (optional)
+          <small>White = area to edit, black = keep</small></label>
+        <input id="maskFile" type="file" accept="image/png,image/jpeg,image/webp" />
+
+        <label class="field-label" for="negativePrompt">Negative prompt</label>
+        <input id="negativePrompt" type="text" placeholder="What to avoid, e.g. blurry, text, watermark" />
+
+        <div class="grid-2">
+          <div>
+            <label class="field-label" for="seed">Seed <small>(blank = random)</small></label>
+            <div class="inline">
+              <input id="seed" type="number" min="0" step="1" placeholder="random" />
+              <button id="randSeed" type="button" class="btn ghost" title="Random seed">🎲</button>
+            </div>
+          </div>
+          <div>
+            <label class="field-label" for="numResults">Number of results</label>
+            <input id="numResults" type="number" min="1" max="4" value="1" />
+          </div>
+        </div>
+
+        <label class="field-label" for="steps">Steps: <output id="stepsOut">50</output></label>
+        <input id="steps" type="range" min="20" max="50" value="50" />
+
+        <label class="field-label" for="guidance">Guidance scale: <output id="guidanceOut">5</output></label>
+        <input id="guidance" type="range" min="3" max="5" step="0.5" value="5" />
+
+        <fieldset class="checks">
+          <legend>Content moderation</legend>
+          <label><input id="modPrompt" type="checkbox" /> Prompt</label>
+          <label><input id="modInput" type="checkbox" /> Input image</label>
+          <label><input id="modOutput" type="checkbox" /> Output image</label>
+        </fieldset>
+
+        <label class="check-row"><input id="syncMode" type="checkbox" /> Synchronous request (<code>sync: true</code>)</label>
+
+        <label class="field-label" for="extraJson">Extra parameters (JSON, merged into request)</label>
+        <textarea id="extraJson" rows="3" class="mono" placeholder='{"some_param": "value"}'></textarea>
+      </details>
+
+      <details class="options">
+        <summary>API settings</summary>
+        <label class="field-label" for="baseUrl">Base URL</label>
+        <input id="baseUrl" type="url" />
+        <label class="field-label" for="endpoint">Endpoint path</label>
+        <input id="endpoint" type="text" />
+        <button id="resetApi" type="button" class="btn ghost small">Reset to defaults</button>
+      </details>
+
+      <button id="submitBtn" class="btn primary wide" type="submit">Generate</button>
+    </form>
+
+    <!-- ============ OUTPUT PANEL ============ -->
+    <section class="panel">
+      <h2>Result</h2>
+      <div id="status" class="status idle">Waiting for input.</div>
+      <div id="results" class="results"></div>
+      <details class="options">
+        <summary>Request / response log</summary>
+        <pre id="log" class="mono log"></pre>
+      </details>
+    </section>
+  </main>
+
+  <!-- ============ API KEY MODAL ============ -->
+  <div id="keyModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="keyModalTitle">
+    <div class="modal-card">
+      <h3 id="keyModalTitle">Update API key</h3>
+      <p class="muted">Current key: <code id="currentKeyMasked">none</code></p>
+      <label class="field-label" for="newKey">New Bria API key</label>
+      <div class="inline">
+        <input id="newKey" type="password" placeholder="Paste your Bria API key" />
+        <button id="toggleKey" type="button" class="btn ghost" title="Show / hide">👁</button>
+      </div>
+      <p id="keyError" class="error" hidden></p>
+      <div class="modal-actions">
+        <button id="removeKey" type="button" class="btn danger-ghost">Remove key</button>
+        <span class="spacer"></span>
+        <button id="cancelKey" type="button" class="btn secondary">Cancel</button>
+        <button id="saveKey" type="button" class="btn primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CONFIRM MODAL ============ -->
+  <div id="confirmModal" class="modal" hidden role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="modal-card small">
+      <h3 id="confirmTitle">Confirm</h3>
+      <p id="confirmText"></p>
+      <div class="modal-actions">
+        <span class="spacer"></span>
+        <button id="confirmCancel" type="button" class="btn secondary">Cancel</button>
+        <button id="confirmOk" type="button" class="btn primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
