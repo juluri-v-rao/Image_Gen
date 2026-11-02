@@ -27,9 +27,7 @@ Then open http://localhost:8000.
 
 ## Deploy on GitHub Pages
 
-1. Merge this into `main`.
-2. In the repo, go to **Settings → Pages → Source** and choose **GitHub Actions**.
-3. The workflow in `.github/workflows/pages.yml` publishes the site to `https://<user>.github.io/<repo>/`.
+`.github/workflows/static.yml` deploys the site on every push to the repo's default branch (`claude/funny-bardeen-052pgi`). It needs **Settings → Pages → Source** set to **GitHub Actions**. The site is published at https://juluri-v-rao.github.io/Image_Gen/.
 
 ## Notes
 
