@@ -20,21 +20,30 @@
     <form id="editForm" class="panel" autocomplete="off">
       <h2>Input</h2>
 
-      <label class="field-label">Input image</label>
+      <label class="field-label">Input images <small id="imageCount">(none)</small></label>
       <div class="tabs" role="tablist">
         <button type="button" class="tab active" data-src="upload">Upload</button>
-        <button type="button" class="tab" data-src="url">Image URL</button>
+        <button type="button" class="tab" data-src="url">Image URLs</button>
       </div>
       <div id="srcUpload" class="src-pane">
         <label id="dropZone" class="drop-zone">
-          <input id="imageFile" type="file" accept="image/png,image/jpeg,image/webp" hidden />
-          <span id="dropText">Click or drop an image here (PNG / JPG / WEBP)</span>
-          <img id="inputPreview" alt="" hidden />
+          <input id="imageFile" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
+          <span id="dropText">Click or drop one or more images here (PNG / JPG / WEBP)</span>
         </label>
+        <div id="thumbs" class="thumbs"></div>
+        <button id="clearImages" type="button" class="btn ghost small" hidden>Remove all images</button>
       </div>
       <div id="srcUrl" class="src-pane" hidden>
-        <input id="imageUrl" type="url" placeholder="https://example.com/photo.jpg" />
+        <textarea id="imageUrls" rows="3" class="mono" placeholder="One image URL per line&#10;https://example.com/photo1.jpg&#10;https://example.com/photo2.jpg"></textarea>
       </div>
+
+      <fieldset id="modeBox" class="checks mode" hidden>
+        <legend>With multiple images</legend>
+        <label class="radio-row"><input type="radio" name="multiMode" value="batch" checked />
+          <span><b>Edit each image separately</b>: same prompt applied to every image (one request per image)</span></label>
+        <label class="radio-row"><input type="radio" name="multiMode" value="combine" />
+          <span><b>Send all images in one request</b>: e.g. reference images for a single edit</span></label>
+      </fieldset>
 
       <label class="field-label" for="instruction">Prompt / edit instruction <span class="req">*</span></label>
       <textarea id="instruction" rows="4" required
@@ -44,7 +53,7 @@
         <summary>Options</summary>
 
         <label class="field-label" for="maskFile">Mask (optional)
-          <small>White = area to edit, black = keep</small></label>
+          <small>White = area to edit, black = keep. Used for every image.</small></label>
         <input id="maskFile" type="file" accept="image/png,image/jpeg,image/webp" />
 
         <label class="field-label" for="negativePrompt">Negative prompt</label>
@@ -59,7 +68,7 @@
             </div>
           </div>
           <div>
-            <label class="field-label" for="numResults">Number of results</label>
+            <label class="field-label" for="numResults">Results per image</label>
             <input id="numResults" type="number" min="1" max="4" value="1" />
           </div>
         </div>

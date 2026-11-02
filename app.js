@@ -89,9 +89,10 @@
     setStatus("idle", "API key removed.");
   }
 
-  /* ---------------- Input image ---------------- */
+  /* ---------------- Input images ---------------- */
+  const MAX_IMAGES = 10;
   let imageSource = "upload";
-  let imageDataUrl = "";
+  let uploads = []; // [{ name, dataUrl }]
   let maskDataUrl = "";
 
   const readAsDataUrl = (file) => new Promise((res, rej) => {
@@ -103,12 +104,54 @@
   // Bria expects raw base64 (no "data:image/...;base64," prefix) or a public URL.
   const stripPrefix = (d) => d.replace(/^data:[^;]+;base64,/, "");
 
-  async function setImageFile(file) {
-    if (!file || !file.type.startsWith("image/")) return;
-    imageDataUrl = await readAsDataUrl(file);
-    $("inputPreview").src = imageDataUrl;
-    $("inputPreview").hidden = false;
-    $("dropText").hidden = true;
+  async function addImageFiles(fileList) {
+    const files = [...(fileList || [])].filter((f) => f.type.startsWith("image/"));
+    const room = MAX_IMAGES - uploads.length;
+    if (files.length > room) setStatus("error", `You can add up to ${MAX_IMAGES} images. Extra files were skipped.`);
+    for (const f of files.slice(0, Math.max(0, room))) uploads.push({ name: f.name, dataUrl: await readAsDataUrl(f) });
+    renderThumbs();
+  }
+
+  function renderThumbs() {
+    const box = $("thumbs");
+    box.textContent = "";
+    uploads.forEach((u, i) => {
+      const d = document.createElement("div");
+      d.className = "thumb"; d.title = u.name;
+      const img = document.createElement("img"); img.src = u.dataUrl; img.alt = u.name;
+      const num = document.createElement("span"); num.className = "num"; num.textContent = i + 1;
+      const rm = document.createElement("button");
+      rm.type = "button"; rm.className = "rm"; rm.textContent = "×"; rm.title = "Remove";
+      rm.addEventListener("click", () => { uploads.splice(i, 1); renderThumbs(); });
+      d.append(img, num, rm);
+      box.append(d);
+    });
+    $("clearImages").hidden = uploads.length < 2;
+    updateImageInfo();
+  }
+
+  const urlList = () => $("imageUrls").value.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+
+  // Returns [{ label, thumb, value }]; value is what is sent to the API.
+  function getInputImages() {
+    if (imageSource === "url") return urlList().slice(0, MAX_IMAGES).map((u, i) => ({ label: `#${i + 1}`, thumb: u, value: u }));
+    return uploads.map((u, i) => ({ label: `#${i + 1} ${u.name}`, thumb: u.dataUrl, value: stripPrefix(u.dataUrl) }));
+  }
+  const multiMode = () => document.querySelector('input[name="multiMode"]:checked').value;
+
+  function requestCount() {
+    const imgs = getInputImages().length;
+    const n = Math.min(4, Math.max(1, Number($("numResults").value) || 1));
+    if (!imgs) return 0;
+    return (imgs > 1 && multiMode() === "batch" ? imgs : 1) * n;
+  }
+
+  function updateImageInfo() {
+    const c = getInputImages().length;
+    $("imageCount").textContent = c ? `(${c} selected)` : "(none)";
+    $("modeBox").hidden = c < 2;
+    const r = requestCount();
+    $("submitBtn").textContent = r > 1 ? `Generate (${r} requests)` : "Generate";
   }
 
   function initImageInputs() {
@@ -117,12 +160,19 @@
       imageSource = t.dataset.src;
       $("srcUpload").hidden = imageSource !== "upload";
       $("srcUrl").hidden = imageSource !== "url";
+      updateImageInfo();
     }));
-    $("imageFile").addEventListener("change", (e) => setImageFile(e.target.files[0]));
+    $("imageFile").addEventListener("change", async (e) => { await addImageFiles(e.target.files); e.target.value = ""; });
     const dz = $("dropZone");
     ["dragenter", "dragover"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("drag"); }));
     ["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("drag"); }));
-    dz.addEventListener("drop", (e) => setImageFile(e.dataTransfer.files[0]));
+    dz.addEventListener("drop", (e) => addImageFiles(e.dataTransfer.files));
+    $("clearImages").addEventListener("click", async () => {
+      if (await confirmDialog(`Remove all ${uploads.length} images?`, "Remove")) { uploads = []; renderThumbs(); }
+    });
+    $("imageUrls").addEventListener("input", updateImageInfo);
+    $("numResults").addEventListener("input", updateImageInfo);
+    document.querySelectorAll('input[name="multiMode"]').forEach((r) => r.addEventListener("change", updateImageInfo));
     $("maskFile").addEventListener("change", async (e) => {
       maskDataUrl = e.target.files[0] ? await readAsDataUrl(e.target.files[0]) : "";
     });
@@ -145,14 +195,12 @@
     });
   }
 
-  function buildBody(seedOverride) {
-    const image = imageSource === "url" ? $("imageUrl").value.trim() : (imageDataUrl && stripPrefix(imageDataUrl));
-    if (!image) throw new Error("Please add an input image.");
+  function buildBody(images, seedOverride) {
     const instruction = $("instruction").value.trim();
     if (!instruction) throw new Error("Please enter a prompt / edit instruction.");
 
     const body = {
-      images: [image],
+      images,
       instruction,
       steps_num: Number($("steps").value),
       guidance_scale: Number($("guidance").value),
@@ -254,13 +302,18 @@
   /* ---------------- UI output ---------------- */
   function setStatus(kind, text) { const s = $("status"); s.className = `status ${kind}`; s.textContent = text; }
 
-  function addResult(src, seed) {
+  function addResult(src, seed, input) {
     const card = document.createElement("div");
     card.className = "result-card";
     const img = document.createElement("img");
     img.src = src; img.alt = "Edited result";
     const actions = document.createElement("div");
     actions.className = "actions";
+    if (input) {
+      const t = document.createElement("img"); t.className = "src"; t.src = input.thumb; t.alt = ""; t.title = `Input ${input.label}`;
+      const l = document.createElement("span"); l.className = "muted"; l.textContent = input.label;
+      actions.append(t, l);
+    }
     const open = document.createElement("a");
     open.href = src; open.target = "_blank"; open.rel = "noopener"; open.textContent = "Open / download";
     actions.append(open);
@@ -273,31 +326,56 @@
     e.preventDefault();
     if (!store.get(LS.key)) { setStatus("error", "Add your Bria API key first."); openKeyModal(); return; }
 
+    const inputs = getInputImages();
+    if (!inputs.length) { setStatus("error", "Please add at least one input image."); return; }
     const n = Math.min(4, Math.max(1, Number($("numResults").value) || 1));
     const seedStr = $("seed").value.trim();
     const baseSeed = seedStr === "" ? undefined : Number(seedStr);
-    let bodies;
+    const seedFor = (i) => (baseSeed === undefined ? undefined : baseSeed + i);
+
+    // Each job = one API request. Batch: one per image (x n). Combine/single: all images together (x n).
+    const groups = inputs.length > 1 && multiMode() === "batch" ? inputs.map((x) => [x]) : [inputs];
+    let jobs;
     try {
-      bodies = Array.from({ length: n }, (_, i) => buildBody(baseSeed === undefined ? undefined : baseSeed + i));
+      jobs = groups.flatMap((g) => Array.from({ length: n }, (_, i) => ({
+        input: g.length === 1 ? g[0] : { label: `All ${g.length} images`, thumb: g[0].thumb },
+        body: buildBody(g.map((x) => x.value), seedFor(i)),
+      })));
     } catch (err) { setStatus("error", err.message); return; }
+
+    if (jobs.length > 8 && !(await confirmDialog(`This will send ${jobs.length} requests to Bria (each one is billed). Continue?`, "Continue"))) return;
 
     $("submitBtn").disabled = true;
     $("submitBtn").textContent = "Generating…";
     $("log").textContent = "";
-    setStatus("working", "Sending request…");
+    setStatus("working", `Sending ${jobs.length} request${jobs.length > 1 ? "s" : ""}…`);
     try {
-      const results = await Promise.allSettled(bodies.map((b, i) => runOne(b, i, n)));
+      // Run at most 3 requests at a time to avoid rate limits.
+      const results = new Array(jobs.length);
+      let next = 0;
+      const worker = async () => {
+        while (next < jobs.length) {
+          const i = next++;
+          try { results[i] = { ok: true, value: await runOne(jobs[i].body, i, jobs.length) }; }
+          catch (e) { results[i] = { ok: false, error: e.message }; }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(3, jobs.length) }, worker));
+
       let okCount = 0; const errors = [];
-      results.forEach((r, i) => {
-        if (r.status === "fulfilled") { okCount++; r.value.images.forEach((src) => addResult(src, bodies[i].seed ?? r.value.data?.result?.seed)); }
-        else errors.push(r.reason.message);
+      // Cards are prepended, so walk backwards to show results in input order.
+      [...results.keys()].reverse().forEach((i) => {
+        const r = results[i], job = jobs[i];
+        if (r.ok) { okCount++; r.value.images.forEach((src) => addResult(src, job.body.seed ?? r.value.data?.result?.seed, job.input)); }
+        else errors.push(`${job.input ? job.input.label + ": " : ""}${r.error}`);
       });
+      errors.reverse();
       if (errors.length && !okCount) setStatus("error", errors.join("\n\n"));
-      else if (errors.length) setStatus("error", `${okCount}/${n} succeeded.\n${errors.join("\n")}`);
-      else setStatus("done", `Done: ${okCount} result${okCount > 1 ? "s" : ""}.`);
+      else if (errors.length) setStatus("error", `${okCount}/${jobs.length} succeeded.\n${errors.join("\n")}`);
+      else setStatus("done", `Done: ${okCount} request${okCount > 1 ? "s" : ""} completed.`);
     } finally {
       $("submitBtn").disabled = false;
-      $("submitBtn").textContent = "Generate";
+      updateImageInfo();
     }
   }
 

@@ -4,11 +4,14 @@ A static web page for Bria's **FIBO Image Edit** API. Upload an image (or paste 
 
 ## Features
 
-- **Input image**: upload, drag and drop, or a public image URL
+- **Multiple input images** (up to 10): upload or drag and drop several files, or paste image URLs one per line. Each image shows as a numbered thumbnail with a remove button.
+  - **Edit each image separately**: the same prompt is applied to every image, one request per image
+  - **Send all images in one request**: all images go into a single request's `images` array, e.g. as references
 - **Prompt / edit instruction**
-- **Options**: mask, negative prompt, seed (with a random button), number of results, steps, guidance scale, content moderation, sync/async mode, and a field for extra JSON parameters (a value of `null` removes a parameter from the request)
+- **Options**: mask, negative prompt, seed (with a random button), results per image, steps, guidance scale, content moderation, sync/async mode, and a field for extra JSON parameters (a value of `null` removes a parameter from the request)
 - **API settings**: base URL and endpoint path, both editable in case Bria changes them
 - **Update API key** button: opens a dialog for the new key, then asks you to confirm with **OK / Cancel** before saving. You can also remove the saved key there.
+- The button shows how many requests will be sent. More than 8 asks for confirmation first, and at most 3 run at the same time.
 - Async requests are handled automatically: the page checks `status_url` until the image is ready.
 - A request/response log for debugging. Long base64 strings are shortened in the log.
 
