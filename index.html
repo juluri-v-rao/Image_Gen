@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FIBO Image Edit</title>
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <link rel="stylesheet" href="styles.css?v=4" />
 </head>
 <body>
   <header class="topbar">
@@ -108,7 +108,7 @@
     <section class="panel">
       <div class="tabs out-tabs" role="tablist">
         <button type="button" class="tab active" data-view="latest">Latest results</button>
-        <button type="button" class="tab" data-view="gallery">Gallery <span id="galleryCount">(0)</span></button>
+        <button type="button" class="tab" data-view="gallery"><span id="lockIcon">🔒</span> Gallery <span id="galleryCount"></span></button>
       </div>
 
       <div id="viewLatest">
@@ -120,9 +120,27 @@
         </details>
       </div>
 
+      <!-- PIN lock screen (shown instead of the gallery until unlocked) -->
+      <div id="viewLock" class="lock" hidden>
+        <div class="lock-icon">🔒</div>
+        <h3 id="lockTitle">Gallery locked</h3>
+        <p id="lockMsg" class="muted">Enter the 6-digit PIN</p>
+        <div id="pinDots" class="pin-dots" aria-live="polite">
+          <span></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div class="keypad" role="group" aria-label="PIN keypad">
+          <button type="button" data-k="1">1</button><button type="button" data-k="2">2</button><button type="button" data-k="3">3</button>
+          <button type="button" data-k="4">4</button><button type="button" data-k="5">5</button><button type="button" data-k="6">6</button>
+          <button type="button" data-k="7">7</button><button type="button" data-k="8">8</button><button type="button" data-k="9">9</button>
+          <button type="button" data-k="cancel" class="fn" id="pinCancel">Cancel</button><button type="button" data-k="0">0</button><button type="button" data-k="back" class="fn" aria-label="Delete">⌫</button>
+        </div>
+      </div>
+
       <div id="viewGallery" hidden>
         <p class="muted">Every generated image is saved here automatically and kept in this browser.</p>
         <div class="gallery-bar">
+          <button id="lockNow" type="button" class="btn secondary small-btn">🔒 Lock</button>
+          <button id="changePin" type="button" class="btn secondary small-btn">Change PIN</button>
           <button id="downloadAll" type="button" class="btn primary small-btn">Download all (ZIP)</button>
           <button id="chooseFolder" type="button" class="btn secondary small-btn">Auto-save to a folder…</button>
           <span class="spacer"></span>
@@ -170,6 +188,6 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

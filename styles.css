@@ -93,6 +93,27 @@ input:focus, textarea:focus { outline: 2px solid var(--primary); outline-offset:
 .result-card .actions { align-items: center; flex-wrap: wrap; }
 
 .out-tabs { margin-bottom: 14px; }
+
+.lock { text-align: center; padding: 24px 0 10px; user-select: none; }
+.lock-icon { font-size: 2rem; }
+.lock h3 { margin: 6px 0 4px; }
+.lock .muted.err { color: var(--danger); }
+.pin-dots { display: flex; justify-content: center; gap: 14px; margin: 18px 0 22px; }
+.pin-dots span { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); transition: background .1s; }
+.pin-dots span.on { background: var(--primary); border-color: var(--primary); }
+.pin-dots.shake { animation: shake .35s; }
+.pin-dots.shake span { border-color: var(--danger); }
+@keyframes shake { 0%,100% { transform: translateX(0) } 20%,60% { transform: translateX(-8px) } 40%,80% { transform: translateX(8px) } }
+.keypad { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px 22px; justify-content: center; }
+.keypad button {
+  width: 72px; height: 72px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg);
+  color: var(--text); font-size: 1.6rem; font-weight: 500; cursor: pointer; font-family: inherit;
+}
+.keypad button:active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.keypad button.fn { border: none; background: transparent; font-size: 0.95rem; }
+.keypad button.fn[aria-label="Delete"] { font-size: 1.4rem; }
+.keypad button:disabled { opacity: .4; cursor: not-allowed; }
+@media (max-width: 400px) { .keypad { grid-template-columns: repeat(3, 64px); gap: 12px 18px; } .keypad button { width: 64px; height: 64px; } }
 .gallery-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 6px; }
 .small-btn { padding: 7px 12px; font-size: 0.85rem; }
 .folder-status { margin: 4px 0 10px; }

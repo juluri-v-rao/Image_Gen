@@ -499,6 +499,11 @@
 
   const objectUrls = [];
   async function renderGallery() {
+    if (!unlocked) { // never put gallery images in the page while locked
+      objectUrls.splice(0).forEach((u) => URL.revokeObjectURL(u));
+      $("gallery").textContent = ""; $("galleryCount").textContent = "";
+      return;
+    }
     let recs = [];
     try { recs = await galleryAll(); } catch { /* storage unavailable */ }
     $("galleryCount").textContent = `(${recs.length})`;
@@ -560,11 +565,128 @@
     } finally { btn.disabled = false; btn.textContent = "Download all (ZIP)"; }
   }
 
+  /* ---------------- Gallery PIN lock ---------------- */
+  // Only a salted PBKDF2 hash of the PIN is stored, never the PIN itself.
+  // A PIN changed with "Change PIN" is saved (hashed) in this browser and overrides the default.
+  const DEFAULT_PIN = { salt: "ed678e29719195eb126c81593b6b211d", iter: 200000, hash: "d3b87caea6c21ae327e4660bc811278ca2b7a184bec13b868c813ea356b593b9" };
+  const PIN_LEN = 6, IDLE_LOCK_MS = 5 * 60 * 1000;
+  let unlocked = false, pinMode = "unlock", pinBuf = "", newPin = "", fails = 0, lockUntil = 0, idleTimer = null;
+
+  const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const unhex = (h) => new Uint8Array(h.match(/../g).map((x) => parseInt(x, 16)));
+  async function pbkdf2(pin, saltHex, iter) {
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveBits"]);
+    return hex(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: unhex(saltHex), iterations: iter }, key, 256));
+  }
+  function storedPin() {
+    try { const p = JSON.parse(store.get("gallery_pin") || "null"); if (p?.salt && p?.hash) return p; } catch {}
+    return DEFAULT_PIN;
+  }
+  async function checkPin(pin) { const p = storedPin(); return (await pbkdf2(pin, p.salt, p.iter)) === p.hash; }
+
+  function showGalleryView() {
+    const onGallery = document.querySelector('.out-tabs .tab[data-view="gallery"]').classList.contains("active");
+    $("viewLock").hidden = !onGallery || unlocked;
+    $("viewGallery").hidden = !onGallery || !unlocked;
+    $("lockIcon").textContent = unlocked ? "🔓" : "🔒";
+  }
+
+  function setPinScreen(mode) {
+    pinMode = mode; pinBuf = "";
+    const t = { unlock: ["Gallery locked", "Enter the 6-digit PIN"],
+                new: ["Change PIN", "Enter a new 6-digit PIN"],
+                confirm: ["Change PIN", "Enter the new PIN again"] }[mode];
+    $("lockTitle").textContent = t[0];
+    $("lockMsg").textContent = t[1]; $("lockMsg").classList.remove("err");
+    drawDots();
+  }
+  function drawDots() { [...$("pinDots").children].forEach((d, i) => d.classList.toggle("on", i < pinBuf.length)); }
+  function pinError(msg) {
+    $("lockMsg").textContent = msg; $("lockMsg").classList.add("err");
+    const d = $("pinDots"); d.classList.remove("shake"); void d.offsetWidth; d.classList.add("shake");
+    setTimeout(() => { pinBuf = ""; drawDots(); }, 350);
+  }
+  function setKeypadDisabled(on) { document.querySelectorAll(".keypad button[data-k]").forEach((b) => { if (b.dataset.k !== "cancel") b.disabled = on; }); }
+
+  function startLockout() {
+    const secs = 30 * 2 ** Math.max(0, Math.floor(fails / 5) - 1); // 30s, 60s, 120s…
+    lockUntil = Date.now() + secs * 1000;
+    setKeypadDisabled(true);
+    const tick = () => {
+      const left = Math.ceil((lockUntil - Date.now()) / 1000);
+      if (left <= 0) { setKeypadDisabled(false); setPinScreen("unlock"); return; }
+      $("lockMsg").textContent = `Too many wrong attempts. Try again in ${left}s`; $("lockMsg").classList.add("err");
+      setTimeout(tick, 500);
+    };
+    tick();
+  }
+
+  async function pinComplete() {
+    const pin = pinBuf;
+    if (pinMode === "unlock") {
+      setKeypadDisabled(true);
+      const ok = await checkPin(pin);
+      setKeypadDisabled(false);
+      if (ok) { fails = 0; unlock(); return; }
+      fails++;
+      if (fails % 5 === 0) { pinBuf = ""; drawDots(); startLockout(); }
+      else pinError(`Wrong PIN. ${5 - (fails % 5)} attempt${5 - (fails % 5) > 1 ? "s" : ""} left`);
+    } else if (pinMode === "new") {
+      newPin = pin; setPinScreen("confirm");
+    } else if (pinMode === "confirm") {
+      if (pin !== newPin) { newPin = ""; setPinScreen("new"); pinError("PINs did not match. Enter a new PIN"); return; }
+      if (!(await confirmDialog("Change the Gallery PIN for this browser?"))) { newPin = ""; cancelPin(); return; }
+      const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
+      store.set("gallery_pin", JSON.stringify({ salt, iter: 200000, hash: await pbkdf2(newPin, salt, 200000) }));
+      newPin = "";
+      unlocked = true; showGalleryView(); renderGallery();
+      setStatus("done", "Gallery PIN changed.");
+    }
+  }
+
+  function pinKey(k) {
+    if ($("viewLock").hidden || Date.now() < lockUntil && k !== "cancel") return;
+    if (k === "cancel") return cancelPin();
+    if (k === "back") { pinBuf = pinBuf.slice(0, -1); drawDots(); return; }
+    if (!/^\d$/.test(k) || pinBuf.length >= PIN_LEN) return;
+    pinBuf += k; drawDots();
+    if (pinBuf.length === PIN_LEN) setTimeout(pinComplete, 120);
+  }
+
+  function cancelPin() {
+    if (pinMode === "unlock") { document.querySelector('.out-tabs .tab[data-view="latest"]').click(); return; }
+    // cancelling a PIN change returns to the (still unlocked) gallery
+    newPin = ""; unlocked = true; setPinScreen("unlock"); showGalleryView(); renderGallery();
+  }
+
+  function unlock() { unlocked = true; resetIdle(); showGalleryView(); renderGallery(); }
+  function lock() {
+    unlocked = false; clearTimeout(idleTimer);
+    setPinScreen("unlock"); showGalleryView(); renderGallery();
+  }
+  function resetIdle() { clearTimeout(idleTimer); if (unlocked) idleTimer = setTimeout(lock, IDLE_LOCK_MS); }
+
+  function initPinLock() {
+    document.querySelectorAll(".keypad button[data-k]").forEach((b) => b.addEventListener("click", () => pinKey(b.dataset.k)));
+    document.addEventListener("keydown", (e) => {
+      if ($("viewLock").hidden || !$("confirmModal").hidden || !$("keyModal").hidden) return;
+      if (/^\d$/.test(e.key)) pinKey(e.key);
+      else if (e.key === "Backspace") { e.preventDefault(); pinKey("back"); }
+      else if (e.key === "Escape") pinKey("cancel");
+    });
+    $("lockNow").addEventListener("click", lock);
+    $("changePin").addEventListener("click", () => { unlocked = false; setPinScreen("new"); showGalleryView(); });
+    ["pointerdown", "keydown"].forEach((ev) => document.addEventListener(ev, resetIdle, { passive: true }));
+    setPinScreen("unlock");
+  }
+
   async function initGallery() {
+    initPinLock();
     document.querySelectorAll(".out-tabs .tab").forEach((t) => t.addEventListener("click", () => {
       document.querySelectorAll(".out-tabs .tab").forEach((x) => x.classList.toggle("active", x === t));
       $("viewLatest").hidden = t.dataset.view !== "latest";
-      $("viewGallery").hidden = t.dataset.view !== "gallery";
+      if (pinMode !== "unlock" && t.dataset.view !== "gallery") { newPin = ""; unlocked = true; setPinScreen("unlock"); }
+      showGalleryView();
       if (t.dataset.view === "gallery") renderGallery();
     }));
     $("downloadAll").addEventListener("click", downloadAll);
